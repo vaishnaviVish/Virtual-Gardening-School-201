@@ -30,16 +30,14 @@ import {
 import { hashCode } from "hashcode";
 import { v4 as uuidv4 } from "uuid";
 
-const Flight = Record({
+const Garden = Record({
   id: text,
   name: text,
   imageUrl: text,
   description: text,
   pricePerPerson: nat64,
-  departureFrom: text,
-  arriveTo: text,
-  departureTime: nat64,
-  seats: nat64,
+  location: text,
+  plants: Vec(text),
   isReserved: bool,
   isAvailable: bool,
   currentReservedTo: Opt(Principal),
@@ -47,15 +45,14 @@ const Flight = Record({
   creator: Principal,
 });
 
-const FlightPayload = Record({
+const GardenPayload = Record({
   name: text,
   imageUrl: text,
   description: text,
   pricePerPerson: nat64,
-  departureFrom: text, 
-  arriveTo: text,
-  departureTime: nat64,
-  seats: nat64,
+  location: text,
+  plants: Vec(text),
+  
 });
 
 const InitPayload = Record({
@@ -68,7 +65,7 @@ const ReservationStatus = Variant({
 });
 
 const Booking = Record({
-  flightId: text,
+  gardenId: text,
   amount: nat64,
   noOfPersons: nat64,
   status: ReservationStatus,
@@ -87,11 +84,11 @@ const Message = Variant({
   PaymentCompleted: text,
 });
 
-const flightsStorage = StableBTreeMap(0, text, Flight);
+const gardenStorage = StableBTreeMap(0, text, Garden);
 const persistedBookings = StableBTreeMap(1, Principal, Booking);
 const pendingBookings = StableBTreeMap(2, nat64, Booking);
 
-// fee to be charged upon room reservation and refunded after room is left
+// fee to be charged upon garden reservation and refunded after garden is left
 let reservationFee: Opt<nat64> = None;
 
 const ORDER_RESERVATION_PERIOD = 120n; // reservation period in seconds
@@ -108,9 +105,9 @@ export default Canister({
     reservationFee = Some(payload.reservationFee);
   }),
 
-  // return rooms reservation fee
-  getFlights: query([], Vec(Flight), () => {
-    return flightsStorage.values();
+  // return gardens reservation fee
+  getGardens: query([], Vec(Garden), () => {
+    return gardenStorage.values();
   }),
 
   // return orders
@@ -123,53 +120,42 @@ export default Canister({
     return pendingBookings.values();
   }),
 
-  // return a particular room
-  getFlight: query([text], Result(Flight, Message), (id) => {
-    const roomOpt = flightsStorage.get(id);
-    if ("None" in roomOpt) {
-      return Err({ NotFound: `room with id=${id} not found` });
+  // return a particular garden
+  getGarden: query([text], Result(Garden, Message), (id) => {
+    const gardenOpt = gardenStorage.get(id);
+    if ("None" in gardenOpt) {
+      return Err({ NotFound: `garden with id=${id} not found` });
     }
-    return Ok(roomOpt.Some);
+    return Ok(gardenOpt.Some);
   }),
 
 
 
-// return rooms based on price
-getFlightByPrice: query([nat64], Result(Vec(Flight), Message), (maxPrice) => {
-  const filteredFlights = flightsStorage.values().filter((flight) => flight.pricePerPerson <= maxPrice);
-  return Ok(filteredFlights);
+// return gardens based on price
+getGardenByPrice: query([nat64], Result(Vec(Garden), Message), (maxPrice) => {
+  const filteredGardens = gardenStorage.values().filter((garden) => garden.pricePerPerson <= maxPrice);
+  return Ok(filteredGardens);
 }),
 
-// return rooms based on departure and arrival places
-getFlightByPlace: query([text, text], Result(Vec(Flight), Message), (departurePlace, arrivalPlace) => {
-  const filteredFlights = flightsStorage.values().filter((flight) => 
-    flight.departureFrom.toLowerCase() === departurePlace.toLowerCase() &&
-    flight.arriveTo.toLowerCase() === arrivalPlace.toLowerCase()
-  );
-  return Ok(filteredFlights);
+// return gardens based on location
+getGardenByLocation: query([nat64], Result(Vec(Garden), Message), (location) => {
+  const filteredGardens = gardenStorage.values().filter((garden) => garden.location === location);
+  return Ok(filteredGardens);
+}),
+
+// return gardens based on name
+getGardenByName: query([nat64], Result(Vec(Garden), Message), (name) => {
+  const filteredGardens = gardenStorage.values().filter((garden) => garden.name === name);
+  return Ok(filteredGardens);
 }),
 
 
-
-
-// getAvailableSeats: query([text], Result(nat64, Message), (flightId) => {
-//   const flightOpt = flightsStorage.get(flightId);
-//   if ("None" in flightOpt) {
-//     return Err({ NotFound: `flight with id=${flightId} not found` });
-//   }
-//   const flight = flightOpt.Some;
-//   const bookedSeats = persistedBookings.values().filter((booking) => booking.flightId === flightId).reduce((total, booking) => total + booking.noOfPersons, 0);
-//   const availableSeats = flight.seats - bookedSeats;
-//   return Ok(availableSeats);
-// }),  
-
-
-  // add new room
-  addFlight: update([FlightPayload], Result(Flight, Message), (payload) => {
+  // add new garden
+  addGarden: update([GardenPayload], Result(Garden, Message), (payload) => {
     if (typeof payload !== "object" || Object.keys(payload).length === 0) {
       return Err({ NotFound: "invalid payoad" });
     }
-    const flight = {
+    const garden = {
       id: uuidv4(),
       isReserved: false,
       isAvailable: true,
@@ -178,43 +164,43 @@ getFlightByPlace: query([text, text], Result(Vec(Flight), Message), (departurePl
       creator: ic.caller(),
       ...payload,
     };
-    flightsStorage.insert(flight.id, flight);
-    return Ok(flight);
+    gardenStorage.insert(garden.id, garden);
+    return Ok(garden);
   }),
 
-  // delete flight
-  deleteFlight: update([text], Result(text, Message), (id) => {
-    // check flight before deleting
-    const flightOpt = flightsStorage.get(id);
-    if ("None" in flightOpt) {
+  // delete garden
+  deleteGarden: update([text], Result(text, Message), (id) => {
+    // check garden before deleting
+    const gardenOpt = gardenStorage.get(id);
+    if ("None" in gardenOpt) {
       return Err({
-        NotFound: `cannot delete the flight: flight with id=${id} not found`,
+        NotFound: `cannot delete the garden: garden with id=${id} not found`,
       });
     }
 
-    if (flightOpt.Some.creator.toString() !== ic.caller().toString()) {
-      return Err({ NotOwner: "only creator can delete flight" });
+    if (gardenOpt.Some.creator.toString() !== ic.caller().toString()) {
+      return Err({ NotOwner: "only creator can delete garden" });
     }
 
-    if (flightOpt.Some.isReserved) {
+    if (gardenOpt.Some.isReserved) {
       return Err({
-        Booked: `flight with id ${id} is currently booked`,
+        Booked: `garden with id ${id} is currently booked`,
       });
     }
-    const deletedRoomOpt = flightsStorage.remove(id);
+    const deletedGardenOpt = gardenStorage.remove(id);
 
-    return Ok(deletedRoomOpt.Some.id);
+    return Ok(deletedGardenOpt.Some.id);
   }),
 
-  // create order for room reservation
+  // create order for garden reservation
   createReservationOrder: update(
     [text, nat64],
     Result(Booking, Message),
     (id, noOfPersons) => {
-      const flightOpt = flightsStorage.get(id);
-      if ("None" in flightOpt) {
+      const gardenOpt = gardenStorage.get(id);
+      if ("None" in gardenOpt) {
         return Err({
-          NotFound: `cannot create the booking: flight=${id} not found`,
+          NotFound: `cannot create the booking: garden=${id} not found`,
         });
       }
 
@@ -224,21 +210,21 @@ getFlightByPlace: query([text, text], Result(Vec(Flight), Message), (departurePl
         });
       }
 
-      const flight = flightOpt.Some;
+      const garden = gardenOpt.Some;
 
-      if (flight.isReserved) {
+      if (garden.isReserved) {
         return Err({
-          Booked: `flight with id ${id} is currently booked`,
+          Booked: `garden with id ${id} is currently booked`,
         });
       }
 
       // calculate total amount to be spent plus reservation fee
       let amountToBePaid =
-        noOfPersons * flight.pricePerPerson + reservationFee.Some;
+        noOfPersons * garden.pricePerPerson + reservationFee.Some;
 
       // generate order
       const booking = {
-        flightId: flight.id,
+        gardenId: garden.id,
         amount: amountToBePaid,
         noOfPersons,
         status: { PaymentPending: "PAYMENT_PENDING" },
@@ -255,18 +241,18 @@ getFlightByPlace: query([text, text], Result(Vec(Flight), Message), (departurePl
     }
   ),
 
-  // complete room reservation
+  // complete garden reservation
   completeReservation: update(
     [text, nat64, nat64, nat64],
     Result(Booking, Message),
     async (id, noOfPersons, block, memo) => {
-      // get room
-      const flightOpt = flightsStorage.get(id);
-      if ("None" in flightOpt) {
-        throw Error(`flight with id=${id} not found`);
+      // get garden
+      const gardenOpt = gardenStorage.get(id);
+      if ("None" in gardenOpt) {
+        throw Error(`garden with id=${id} not found`);
       }
 
-      const flight = flightOpt.Some;
+      const garden = gardenOpt.Some;
 
       // check reservation fee is set
       if ("None" in reservationFee) {
@@ -276,7 +262,7 @@ getFlightByPlace: query([text, text], Result(Vec(Flight), Message), (departurePl
       }
 
       // calculate total amount to be spent plus reservation fee
-      let amount = noOfPersons * flight.pricePerPerson + reservationFee.Some;
+      let amount = noOfPersons * garden.pricePerPerson + reservationFee.Some;
 
       // check payments
       const paymentVerified = await verifyPaymentInternal(
@@ -306,52 +292,52 @@ getFlightByPlace: query([text, text], Result(Vec(Flight), Message), (departurePl
         paid_at_block: Some(block),
       };
 
-      // calculate noOfNights in minutes (testing)
+      
       let durationInMins = BigInt(60 * 1000000000);
 
       // get updated record
-      const updatedFlight = {
-        ...flight,
+      const updatedGarden = {
+        ...garden,
         currentReservedTo: Some(ic.caller()),
         isReserved: true,
         currentReservationEnds: Some(ic.time() + durationInMins),
       };
 
-      flightsStorage.insert(flight.id, updatedFlight);
+      gardenStorage.insert(garden.id, updatedGarden);
       persistedBookings.insert(ic.caller(), updatedBooking);
       return Ok(updatedBooking);
     }
   ),
 
   // end reservation and receive your refund
-  // complete room reservation
+  // complete garden reservation
   endReservation: update([text], Result(Message, Message), async (id) => {
-    // get room
-    const flightOpt = flightsStorage.get(id);
-    if ("None" in flightOpt) {
-      return Err({ NotFound: `flight with id=${id} not found` });
+    // get garden
+    const gardenOpt = gardenStorage.get(id);
+    if ("None" in gardenOpt) {
+      return Err({ NotFound: `garden with id=${id} not found` });
     }
 
-    const flight = flightOpt.Some;
+    const garden = gardenOpt.Some;
 
-    if (!flight.isReserved) {
-      return Err({ NotBooked: "flight is not reserved" });
+    if (!garden.isReserved) {
+      return Err({ NotBooked: "garden is not reserved" });
     }
 
-    if ("None" in flight.currentReservationEnds) {
+    if ("None" in garden.currentReservationEnds) {
       return Err({ NotBooked: "reservation time not set" });
     }
 
-    if (flight.currentReservationEnds.Some > ic.time()) {
+    if (garden.currentReservationEnds.Some > ic.time()) {
       return Err({ Booked: "booking time not yet over" });
     }
 
-    if ("None" in flight.currentReservedTo) {
-      return Err({ NotBooked: "flight not reserved to anyone" });
+    if ("None" in garden.currentReservedTo) {
+      return Err({ NotBooked: "garden not reserved to anyone" });
     }
 
-    if (flight.currentReservedTo.Some.toString() !== ic.caller().toString()) {
-      return Err({ Booked: "only booker of flight can unbook" });
+    if (garden.currentReservedTo.Some.toString() !== ic.caller().toString()) {
+      return Err({ Booked: "only booker of garden can unbook" });
     }
 
     // check reservation fee is set
@@ -368,14 +354,14 @@ getFlightByPlace: query([text, text], Result(Vec(Flight), Message), (departurePl
     }
 
     // get updated record
-    const updatedFlight = {
-      ...flight,
+    const updatedGarden = {
+      ...garden,
       currentReservedTo: None,
       isReserved: false,
       currentReservationEnds: None,
     };
 
-    flightsStorage.insert(flight.id, updatedFlight);
+    gardenStorage.insert(garden.id, updatedGarden);
 
     return result;
   }),
